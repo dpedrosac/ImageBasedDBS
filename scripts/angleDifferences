@@ -1,0 +1,258 @@
+library(tableone)
+library(readxl)
+library(dplyr) 
+library(ggplot2)
+library(ggpubr)
+library(tidyr)
+library(glue)
+library(rstatix)
+library(lemon)
+library(gridExtra)
+library(circular)
+library(NISTUnits)
+
+## ============================== General settings and loading data ==============================
+# Define a theme to be used in figures
+my.theme 		  <- theme_light()
+my.theme 		  <- my.theme + theme(panel.border=element_blank(), 
+axis.line 		<- element_line(), 
+axis.ticks 		<- element_line(colour='black'),
+axis.title.y	<- element_text(margin = margin(t = 0, r = 20, b = 0, l = 0)), 
+text 			    <- element_text(size=20, family="serif"))
+
+# Load data in a wide format and convert to something that may be used for estimations of ANOVA and for plotting purposes
+wdir 				<- getwd()
+df 					<- read_excel(paste(wdir, "data-guideXT.xlsx", sep=""), sheet = "table_all")
+df 					<- df %>% drop_na(updrs_GXT)
+df 					<- as.data.frame(df)
+df 					<- df[df$include==1,]
+df_wide 	  <- df %>% select(pseud, updrs_off, updrs_GXT, updrs_MT) %>% gather(condition, UPDRS_score, updrs_off, updrs_GXT, updrs_MT)
+
+df_wide$pseud 		  <- as.factor(df_wide$pseud)
+df_wide$condition 	<- as.factor(df_wide$condition)
+
+## ============================== Visualisation for angle differences ==============================
+df_angle_wide 			    <- df %>% select(pseud, guideXT_L, orient_angleL, guideXT_L_dir, guideXT_R, orient_angleR, guideXT_R_dir)
+df_angle_wide$guideXT_L <- with(df_angle_wide, guideXT_L*( (guideXT_L_dir=="LR") *(-1) + (guideXT_L_dir=="LL") *1 ) ) 
+df_angle_wide$guideXT_R <- with(df_angle_wide, guideXT_R*( (guideXT_R_dir=="LR") *(-1) + (guideXT_R_dir=="LL") *1 ) ) 
+breaks_hist 			      <- seq(-120, 120, 40)
+hleft 					        <- hist(df_angle_wide$guideXT_L, breaks=breaks_hist)
+hright 					        <- hist(df_angle_wide$guideXT_R, breaks=breaks_hist)
+
+dfhist 					        <- data.frame(x = 1:length(hleft$counts))
+dfhist$y 				        <- hleft$counts/sum(hleft$counts)
+
+# Settings for plotting
+colfunc 				<- colorRampPalette(c("#555555" , "#E2E2E2" ))
+ylims 					<- c(-.1,  max(c(hright$counts/sum(hright$counts), hleft$counts/sum(hleft$counts)))*1.5)
+barwidth 				<- .97
+colsample 			<- sample(colfunc(length(dfhist$y)))
+
+for (i in seq(1, length(hleft$counts))) {
+	dfhist$type[i] = paste0(toString(hleft$breaks[i]),"° > ", expression(theta), " < ", toString(hleft$breaks[i+1]), "°")
+}
+
+# Histogram for angles
+p2 <- ggplot(dfhist, aes(x+-.5, y, fill=type)) + 
+              ylim(ylims[1], ylims[2]) + 
+              scale_fill_manual(values=colsample) +
+
+# Lines for angles
+geom_segment(aes(x = length(x)/2, y = .05, xend = length(x)/2, yend = ylims[2]), 
+                  size=.5, color="grey", linetype=2) +
+geom_segment(aes(x = length(x)*.75, y = .05, xend = length(x)*.75, yend = ylims[2]), 
+                  size=.5, color="grey", linetype=2) +
+geom_segment(aes(x = length(x)/4, y = .05, xend = length(x)/4, yend = ylims[2]), 
+                  size=.5, color="grey", linetype=2) +
+
+geom_bar(color=colsample, stat="identity", width=barwidth, size=1.3) +
+          coord_polar(start = -pi/2, clip= "off") + 
+          scale_x_continuous(limits = c(0, nrow(dfhist)*2)) +
+
+# Text to plot
+geom_text(aes(x = length(x)*.75, y = ylims[2], label=paste0("45","°")), parse = FALSE, 
+              family="serif", size=6, color="grey") +
+geom_text(aes(x = length(x)/4, y = ylims[2], label=paste0("-45","°")), parse = FALSE, 
+              family="serif", size=6, color="grey") +
+geom_text(aes(x = length(x)/2, y = ylims[2], label=paste0("0","°")), parse = FALSE, 
+              family="serif", size=6, color="grey") +
+
+ggthemes::theme_map() + 
+theme_minimal() +
+theme(
+      axis.text = element_blank(),
+      axis.title = element_blank(),
+      panel.grid = element_blank(),
+      plot.margin = unit(rep(-1,4), "cm")) +      # Adjust the margin to make in sort labels are not truncated!
+geom_text(aes(label=scales::percent(y)), family="serif", size=10) + 
+ggtitle("Left STN") + 
+#geom_segment(aes(x = length(x)/2, y = .05, xend =  length(x)/2, yend = ylims[2]*.8), 
+#		size=2, color="red") +
+#geom_text(aes(x = length(x)/2, y = ylims[2], label="theta ==0"), parse = TRUE, 
+#		family="serif", size=8) +
+#annotate('segment', x = length(dfhist$x)/2, y = .05, xend = length(dfhist$x)/2, yend = ylims[2]*.8,
+#	size = 2, colour = "red", alpha=.8) +
+ggthemes::theme_map() + 
+theme(legend.position = "bottom",
+      plot.title = element_text(size = 24, face = "bold", hjust = 0.5), 
+      panel.border = element_blank(),		
+      text=element_text(size=20, family="serif"))
+
+## Right Side
+dfhist 		<- data.frame(x = 1:length(hright$counts))
+dfhist$y 	<- hright$counts/sum(hright$counts)
+
+for (i in seq(1, length(hright$counts))) {
+	dfhist$type[i] = paste0(toString(hright$breaks[i]),"° > ", expression(theta), " < ", toString(hright$breaks[i+1]), "°")
+}
+
+p3 <- ggplot(dfhist, aes(x+-.5, y, fill=type)) + 
+              ylim(ylims[1], ylims[2]) + 
+              scale_fill_manual(values=colsample) +
+
+# lines for angles
+geom_segment(aes(x = length(x)/2, y = .05, xend = length(x)/2, yend = ylims[2]), 
+                  size=.5, color="grey", linetype=2) +
+geom_segment(aes(x = length(x)*.75, y = .05, xend = length(x)*.75, yend = ylims[2]), 
+                  size=.5, color="grey", linetype=2) +
+geom_segment(aes(x = length(x)/4, y = .05, xend = length(x)/4, yend = ylims[2]), 
+                  size=.5, color="grey", linetype=2) +
+
+geom_bar(color=colsample, stat="identity", width=barwidth, size=1.3) +
+          coord_polar(start = -pi/2, clip= "off") + 
+          scale_x_continuous(limits = c(0, nrow(dfhist)*2)) +
+
+# angles for plot
+geom_text(aes(x = length(x)*.75, y = ylims[2], label=paste0("45","°")), parse = FALSE, 
+              family="serif", size=6, color="grey") +
+geom_text(aes(x = length(x)/4, y = ylims[2], label=paste0("-45","°")), parse = FALSE, 
+              family="serif", size=6, color="grey") +
+geom_text(aes(x = length(x)/2, y = ylims[2], label=paste0("0","°")), parse = FALSE, 
+              family="serif", size=6, color="grey") +
+
+ggthemes::theme_map() + 
+theme_minimal() +
+theme(
+  axis.text = element_blank(),
+  axis.title = element_blank(),
+  panel.grid = element_blank(),
+  plot.margin = unit(rep(-1,4), "cm")) +      # Adjust the margin to make in sort labels are not truncated!
+geom_text(aes(label=scales::percent(y)), family="serif", size=10) + 
+ggtitle("Right STN") + 
+#geom_segment(aes(x = length(x)/2, y = .05, xend =  length(x)/2, yend = ylims[2]*.8), 
+#		size=2, color="red") +
+#geom_text(aes(x = length(x)/2, y = ylims[2], label="theta ==0"), parse = TRUE, 
+#		family="serif", size=8) +
+#annotate('segment', x = length(dfhist$x)/2, y = .05, xend = length(dfhist$x)/2, yend = ylims[2]*.8,
+#	size = 2, colour = "red", alpha=.8) +
+ggthemes::theme_map() + 
+theme(legend.position = "bottom",
+        plot.title = element_text(size = 24, face = "bold", hjust = 0.5), 
+        panel.border = element_blank(),		
+        text=element_text(size=20, family="serif"))
+
+g_legend <- function(a.gplot){
+	tmp <- ggplot_gtable(ggplot_build(a.gplot))
+	leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+	legend <- tmp$grobs[[leg]]
+return(legend)}
+
+mylegend <- g_legend(p2)
+p2 <- p2 + theme(legend.position="none")
+p3 <- p3 + theme(legend.position="none")
+
+grid.arrange(p2, p3, mylegend,ncol = 2, nrow = 2, 
+layout_matrix = rbind(c(1,2), c(3,3)), 
+widths = c(2.7, 2.7), heights = c(2.5, 0.2))
+
+# ANNOTATION: p2 and p3 are not used in the manuscript!!
+
+## ============================== Statistics on angle differences ==============================
+library(NISTunits)
+idx 			    <- df$include==1 & !is.na(df_angle_wide$guideXT_L) & !is.na(df_angle_wide$guideXT_R)
+delta_angleR 	<- df_angle_wide$guideXT_R[idx] - df_angle_wide$orient_angleR[idx]
+delta_angleL 	<- df_angle_wide$guideXT_L[idx] - df_angle_wide$orient_angleL[idx]
+
+# Prepare data for Releigh's test
+no 							          <- seq(1, length(c(delta_angleL, delta_angleR)))
+val 						          <- runif(n=length(no), min=.85, max=ylims[2]*1.75)
+side 						          <- c(rep("L", length(delta_angleL)), rep("R", length(delta_angleR)))
+delta 						        <- c(delta_angleL, delta_angleR)
+angle.data 					      <- data.frame(no, val, delta, side)
+idx.neg 					        <- angle.data$delta<0
+angle.data$delta[idx.neg] <- 360 + angle.data$delta[idx.neg]
+
+# Run statistics
+dat_gxt 	<- c(df_angle_wide$guideXT_R[idx], df_angle_wide$guideXT_L[idx])
+dat_ang 	<- c(df_angle_wide$orient_angleR[idx], df_angle_wide$orient_angleL[idx])
+ral_test 	<- rayleigh.test(NISTdegTOradian(dat_ang) - NISTdegTOradian(dat_gxt), mu=0)
+
+## ============================== Visualisation for angle differences ==============================
+ylims 	<- c(-.75,  max(c(hright$counts/sum(hright$counts), hleft$counts/sum(hleft$counts)))*1.5)
+p4 			<- ggplot(angle.data, aes(x=delta, y=val, fill=side)) + 
+ylim(ylims[1]*3, 1.8) +
+geom_bar(color=c(rep(colsample[1], dim(angle.data)[1]/2), 
+          rep(colsample[3],  dim(angle.data)[1]/2)), stat="identity", width=4, size=.3) +
+          scale_fill_manual(values=c(colsample[1], colsample[3])) +
+coord_polar(start = 0, clip= "off", direction=1) + 
+scale_x_continuous(limits = c(0, 360)) +
+ggtitle("Differences in estimated angles between\n GUIDE-XT and Lead-DBS package") + 
+
+# plot averages
+geom_segment(aes(x = 360+mean(delta_angleR), y = .05, xend = 360+mean(delta_angleR), yend = ylims[2]*2.2),  
+              size=2, color="#B34439", linetype=1) +
+geom_segment(aes(x = mean(delta_angleL), y = .05, xend = mean(delta_angleL), yend = ylims[2]*2.2),
+              size=2, color="#6A7F99", linetype=1) +
+
+# Here it could be added the SD/SEM in shaded ...
+
+# lines for angles
+geom_segment(aes(x = 0, y = .05, xend = 0, yend = ylims[2]*2.2), 
+              size=.5, color="black", linetype=2) +
+geom_segment(aes(x = 315, y = .05, xend = 315, yend = ylims[2]*2.2), 
+              size=.5, color="black", linetype=2) +
+geom_segment(aes(x = 45, y = .05, xend = 45, yend = ylims[2]*2.2), 
+              size=.5, color="black", linetype=2) +
+
+# angles for plot
+geom_text(aes(x = 0, y = ylims[2]*2.5, label=paste0("0","°")), parse = FALSE, 
+          family="serif", size=6) +
+geom_text(aes(x = 315, y = ylims[2]*2.5, label=paste0("-45","°")), parse = FALSE, 
+          family="serif", size=6) +
+geom_text(aes(x = 45, y = ylims[2]*2.5, label=paste0("45","°")), parse = FALSE, 
+          family="serif", size=6) +
+
+# yticks	
+geom_segment(data=angle.data, aes(x = 0, y = .95, xend = 60, yend = .95), colour = "black", alpha=1, 
+              size=0.3 , inherit.aes = FALSE ) +
+geom_segment(data=angle.data, aes(x = 300, y = .95, xend = 360, yend = .95), colour = "black", alpha=1, 
+              size=0.3 , inherit.aes = FALSE ) +
+geom_segment(data=angle.data, aes(x = 0, y = 0, xend = 80, yend = 0), colour = "black", alpha=1, 
+              size=0.3 , inherit.aes = FALSE ) +
+geom_segment(data=angle.data, aes(x = 280, y = 0, xend = 360, yend = 0), colour = "black", alpha=1, 
+              size=0.3 , inherit.aes = FALSE ) +
+geom_segment(data=angle.data, aes(x = 0, y = .4, xend = 70, yend = .4), colour = "black", alpha=1, 
+              size=0.3 , inherit.aes = FALSE ) +
+geom_segment(data=angle.data, aes(x = 290, y = .4, xend = 360, yend = .4), colour = "black", alpha=1, 
+              size=0.3 , inherit.aes = FALSE ) +
+
+annotate('text', x = 0, y = -1.2, label = paste("Rayleigh's test:\n z=", 
+          format(round(ral_test$statistic, 3), nsmall = 2), ", p<.0001"), 
+          family="serif", size=5) +
+
+theme_minimal() +
+theme(legend.position = "bottom",
+      plot.title = element_text(size = 24, face = "bold", hjust = 0.5), 
+      panel.grid = element_blank(),
+      #axis.ticks = element_line(colour = "grey"),		
+      #axis.ticks = element_line(colour = "grey"),
+      #axis.ticks.length = unit(-1, "lines"),
+      #axis.ticks.margin = unit(1.3,"lines"),
+      axis.text =  element_blank(),
+      axis.text.y = element_blank(),
+      axis.title = element_blank(),
+      #axis.line=element_line(),
+      axis.line.x=element_blank(),
+      #axis.line.y = element_line(colour = "grey"),
+      text=element_text(size=20, family="serif"))
+p4
